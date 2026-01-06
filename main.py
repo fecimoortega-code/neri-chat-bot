@@ -290,6 +290,98 @@ MEMBER_OPINIONS = {
     "азрі": ["Азрі — атака фуряшками 🐾🌿", "Азрі — фуряшки наступають… і я не проти 😼🍃"],
 }
 
+# ===== Member aliases (відмінки/кличний/варіанти) =====
+MEMBER_ALIASES = {
+    "рітерум": ["рітерум", "рітерума", "рітеруму", "рітерумом", "рітеруме", "ритерум", "ритерума", "ритеруму"],
+    "рум": ["рум", "рума", "руму", "румом", "руме"],
+
+    "лірен": ["лірен", "лірена", "лірену", "ліреном", "лірене"],
+
+    "торі": ["торі"],
+
+    "дейз": ["дейз", "дейза", "дейзу", "дейзом", "дейзе", "дейзик"],
+    "дейзяра": ["дейзяра", "дейзяри", "дейзярі", "дейзяру", "дейзярою"],
+
+    "піна": ["піна", "піни", "піні", "піну", "піною", "піно"],
+
+    "алувіан": ["алувіан", "алувіана", "алувіану", "алувіаном", "алувіане"],
+
+    "мірай": ["мірай"],
+
+    "стеллар": ["стеллар", "стеллара", "стеллару", "стелларом", "стелларе"],
+
+    "рибка": ["рибка", "рибки", "рибці", "рибку", "рибкою"],
+
+    "лі": ["лі"],
+
+    "мока": ["мока", "моки", "моці", "моку", "мокою", "моко"],
+
+    "інкі": ["інкі"],
+
+    "леся": ["леся", "лесі", "лесю", "лесею", "лесе"],
+
+    "марі": ["марі"],
+
+    "дрімі": ["дрімі"],
+
+    "ілля": ["ілля", "іллі", "іллю", "ілле", "іллею", "иля", "иле", "иллі"],
+
+    "печеніг": ["печеніг", "печеніга", "печенігу", "печенігом", "печеніже"],
+
+    "жук": ["жук", "жука", "жуку", "жуком", "жуже"],
+
+    "азрі": ["азрі", "azri", "azry"],
+}
+
+ALIAS_TO_MEMBER_KEY = {}
+for canon, aliases in MEMBER_ALIASES.items():
+    for a in aliases:
+        ALIAS_TO_MEMBER_KEY[a.lower()] = canon
+
+def _clean_name_token(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = s.replace("’", "'").replace("ʼ", "'")
+    s = re.sub(r"^[^\wа-щьюяєіїґ\-']+|[^\wа-щьюяєіїґ\-']+$", "", s, flags=re.IGNORECASE)
+    return s
+
+def canonical_member_key(name_raw: str) -> str:
+    key = _clean_name_token(name_raw)
+    if not key:
+        return ""
+
+    if key in ALIAS_TO_MEMBER_KEY:
+        return ALIAS_TO_MEMBER_KEY[key]
+
+    candidates = {key}
+
+    if len(key) > 3:
+        if key.endswith("о"):
+            candidates.add(key[:-1] + "а")
+        if key.endswith(("и", "і")):
+            candidates.add(key[:-1] + "а")
+        if key.endswith("у"):
+            candidates.add(key[:-1] + "а")
+            candidates.add(key[:-1])
+        if key.endswith("ю"):
+            candidates.add(key[:-1] + "я")
+            candidates.add(key[:-1] + "а")
+        if key.endswith("е"):
+            candidates.add(key[:-1])
+            candidates.add(key[:-1] + "я")
+        if key.endswith(("ом", "ою", "ею")):
+            base = re.sub(r"(ом|ою|ею)$", "", key)
+            candidates.add(base)
+            candidates.add(base + "а")
+            candidates.add(base + "я")
+
+    for c in candidates:
+        c = _clean_name_token(c)
+        if c in ALIAS_TO_MEMBER_KEY:
+            return ALIAS_TO_MEMBER_KEY[c]
+
+    return key
+
+
 # політика/війна — табу
 SERIOUS_KEYWORDS = ["політик", "вибор", "парті", "війна", "фронт", "зброя", "ракета"]
 
@@ -332,12 +424,7 @@ def handle_member_opinion(raw_text: str, q: str) -> str | None:
         parts = q.split()
         name = parts[-1] if parts else ""
 
-    key = normalize_name(name)
-
-    if key in ("ритерум",):
-        key = "рітерум"
-    if key in ("ілля", "иля"):
-        key = "ілля"
+    key = canonical_member_key(name)
 
     if key in MEMBER_OPINIONS:
         return random.choice(MEMBER_OPINIONS[key])
@@ -390,19 +477,15 @@ def handle_punish(raw_text: str, q: str) -> str | None:
     if not name:
         return f"Кого карати? Напиши так: «Нері, покарай Торі» {n_emo()}👀"
 
-    key = normalize_name(name)
+    key = canonical_member_key(name)
 
     if "нері" in key:
         return f"Я себе не караю 😼🌿 Я краще квітну. А кого караємо? {n_emo()}"
 
-    if key in ("ритерум",):
-        key = "рітерум"
-    if key in ("иля",):
-        key = "ілля"
-
+    # красиве ім'я (як в списку)
     nice = name.strip()
     for m in TEAM_MEMBERS_UNIQUE:
-        if normalize_name(m) == key:
+        if canonical_member_key(m) == key:
             nice = m
             break
 
@@ -589,8 +672,9 @@ async def telegram_webhook(request: Request):
 
         else:
             # 0) покарай <імʼя> (жарт)
-            if handle_punish(raw_text, q):
-                reply = handle_punish(raw_text, q)
+            punish = handle_punish(raw_text, q)
+            if punish:
+                reply = punish
 
             # 1) повний список команд
             elif is_cmds_query(q):
@@ -618,42 +702,44 @@ async def telegram_webhook(request: Request):
                 ])
 
             # 5) випадковий учасник
-            elif handle_random_member(q):
-                reply = handle_random_member(q)
-
-            # 6) матуся/татусь
-            elif is_mom_query(q):
-                reply = random.choice([
-                    f"Моя матуся — Рітерум (Рум) {n_emo()}💚",
-                    f"Рітерум — матуся {n_emo()}",
-                ])
-
-            elif is_dad_query(q):
-                reply = random.choice([
-                    f"Мій татусь — Лірен {n_emo()}💚",
-                    f"Лірен — татусь {n_emo()}",
-                ])
-
-            # 7) ти мене любиш?
-            elif is_love_query(q):
-                reply = random.choice(LOVE_REPLIES) + f" {n_emo()}"
-
-            # 8) як ти вважаєш...
-            elif is_opinion_query(q):
-                reply = make_opinion()
-
-            # 9) думка/ставлення про учасника
-            elif handle_member_opinion(raw_text, q):
-                reply = handle_member_opinion(raw_text, q)
-
-            # 10) підтримка
-            elif is_support_query(q):
-                reply = random.choice(SUPPORT_REPLIES)
-
-            # 11) короткі інтенти
             else:
-                found = detect_intent(q)
-                reply = found if found else random.choice(FALLBACKS)
+                rnd = handle_random_member(q)
+                if rnd:
+                    reply = rnd
+
+                # 6) матуся/татусь
+                elif is_mom_query(q):
+                    reply = random.choice([
+                        f"Моя матуся — Рітерум (Рум) {n_emo()}💚",
+                        f"Рітерум — матуся {n_emo()}",
+                    ])
+
+                elif is_dad_query(q):
+                    reply = random.choice([
+                        f"Мій татусь — Лірен {n_emo()}💚",
+                        f"Лірен — татусь {n_emo()}",
+                    ])
+
+                # 7) ти мене любиш?
+                elif is_love_query(q):
+                    reply = random.choice(LOVE_REPLIES) + f" {n_emo()}"
+
+                # 8) як ти вважаєш...
+                elif is_opinion_query(q):
+                    reply = make_opinion()
+
+                # 9) думка/ставлення про учасника (з аліасами!)
+                else:
+                    op = handle_member_opinion(raw_text, q)
+                    if op:
+                        reply = op
+                    # 10) підтримка
+                    elif is_support_query(q):
+                        reply = random.choice(SUPPORT_REPLIES)
+                    # 11) короткі інтенти
+                    else:
+                        found = detect_intent(q)
+                        reply = found if found else random.choice(FALLBACKS)
 
     if reply:
         send_message(chat_id, reply)
