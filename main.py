@@ -9,9 +9,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# ===== GEMINI =====
+# Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # можна міняти в ENV
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -195,40 +195,13 @@ NATURE_EMOJIS = ["🌿", "🍃", "🌱", "🍀", "🪴", "🌸", "🌼", "✨", 
 def n_emo():
     return random.choice(NATURE_EMOJIS)
 
-# ===== Pronouns / gender enforcement (Нері: він/вони) =====
-FEM_TO_MASC_REPLACEMENTS = [
-    (r"\bя була\b", "я був"),
-    (r"\bя зробила\b", "я зробив"),
-    (r"\bя сказала\b", "я сказав"),
-    (r"\bя відповіла\b", "я відповів"),
-    (r"\bя хотіла\b", "я хотів"),
-    (r"\bя могла\b", "я міг"),
-    (r"\bя не могла\b", "я не міг"),
-    (r"\bя забула\b", "я забув"),
-    (r"\bя зрозуміла\b", "я зрозумів"),
-    (r"\bя думала\b", "я думав"),
-    (r"\bя бачила\b", "я бачив"),
-    (r"\bя пішла\b", "я пішов"),
-    (r"\bя прийшла\b", "я прийшов"),
-    (r"\bя стала\b", "я став"),
-]
-
-def enforce_neri_pronouns(text: str) -> str:
+# Трохи екстравертності + іноді капс (рідко)
+def neri_style(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return t
-    for pattern, repl in FEM_TO_MASC_REPLACEMENTS:
-        t = re.sub(pattern, repl, t, flags=re.IGNORECASE)
-    return t
 
-# ===== “екстравертність” (інколи капсом, але рідко) =====
-def neri_style(text: str) -> str:
-    if not text:
-        return text
-
-    t = text.strip()
-
-    # 8% шанс зробити одне слово/фразу капсом (без перебору)
+    # 8% шанс: один короткий фрагмент капсом
     if random.random() < 0.08:
         words = t.split()
         if len(words) >= 3:
@@ -236,13 +209,9 @@ def neri_style(text: str) -> str:
             words[i] = words[i].upper()
             t = " ".join(words)
 
-    # додай емодзі інколи, без спаму
-    if random.random() < 0.25 and len(t) < 260:
-        if not t.endswith(("🌿","✨","💚","😼","👀","🍃","🌱","🍀","🪴","🌸","🌼")):
-            t = t + " " + n_emo()
-
-    # ВАЖЛИВО: фіксуємо рід/займенники
-    t = enforce_neri_pronouns(t)
+    # трохи "живості"
+    if random.random() < 0.25 and not t.endswith(("🌿", "✨", "💚", "😼", "👀", "🍃", "🌱", "🍀", "🪴", "🌸", "🌼")):
+        t = t + " " + n_emo()
     return t
 
 NERI_AGE = 2
@@ -276,8 +245,8 @@ ABOUT_REPLIES = [
     "Нері — це не просто імʼя. Це символ команди 🌿✨",
     "Я Нері: маскот, талісман і тиха сила команди 🌱✨",
     "Я тут для допомоги, ігор і атмосфери 💚🌿",
-    "Я ніжний і турботливий, АЛЕ ДУЖЕ ТОВАРИСЬКИЙ 😼🌿✨",
-    "Я люблю побазікати, природу, музику і зелений чай 🍵🌿",
+    "Я ніжний і турботливий, але Я ДУЖЕ ТОВАРИСЬКИЙ 😼🌿✨ Люблю побазікати!",
+    "Я обожнюю природу, музику і зелений чай 🍃🍵💚",
 ]
 
 INTERESTING_REPLIES = [
@@ -286,6 +255,7 @@ INTERESTING_REPLIES = [
     "Маленькі кроки теж кроки. Особливо якщо вони в правильний бік 🍃",
     "Якщо ти читаєш це — ти вже тут. А це багато ✨🌿",
     "Видих. Ще один. І стає легше 🍃🌿",
+    "Факт від Нері: зелений чай + музика = +100 до атмосфери 🍵🎶🌿",
 ]
 
 LOVE_REPLIES = [
@@ -388,66 +358,107 @@ def canonical_member_key(name_raw: str) -> str:
     key = _clean_name_token(name_raw)
     if not key:
         return ""
-    return ALIAS_TO_MEMBER_KEY.get(key, key)
+
+    if key in ALIAS_TO_MEMBER_KEY:
+        return ALIAS_TO_MEMBER_KEY[key]
+
+    # легкий "авто-відмінок" на всяк випадок
+    candidates = {key}
+    if len(key) > 3:
+        if key.endswith("о"):
+            candidates.add(key[:-1] + "а")
+        if key.endswith(("и", "і")):
+            candidates.add(key[:-1] + "а")
+        if key.endswith("у"):
+            candidates.add(key[:-1] + "а")
+            candidates.add(key[:-1])
+        if key.endswith("ю"):
+            candidates.add(key[:-1] + "я")
+            candidates.add(key[:-1] + "а")
+        if key.endswith("е"):
+            candidates.add(key[:-1])
+            candidates.add(key[:-1] + "я")
+
+    for c in candidates:
+        c = _clean_name_token(c)
+        if c in ALIAS_TO_MEMBER_KEY:
+            return ALIAS_TO_MEMBER_KEY[c]
+
+    return key
 
 
-# ===== Team facts / profiles (правда про команду) =====
-TEAM_FACTS = {
-    "дейз": {
-        "short": "Дейз — учасник вашої команди.",
-        "details": [
-            "У лорі Нері є фраза: «Дейз оживив мене» (це просто теплий факт з характеру бота).",
+# ===== Gemini fallback =====
+def gemini_answer_as_neri(user_text: str) -> str | None:
+    if not GEMINI_API_KEY:
+        return None
+
+    # інструкція “характер/заборони”
+    system = (
+        "Ти — Нері, маскот команди. Стиль: ніжний, турботливий, "
+        "Ти - використвовуєш займенники він/вони"
+        "але екстравертний і товариський; любиш побазікати; любиш природу, музику і зелений чай. "
+        "Пиши українською. Тон дружній, теплий, інколи жартівливий. "
+        "Іноді (рідко) можеш підсилити емоцію КАПСОМ, але без перебору. "
+        "Заборони: не говори про політику/війну/зброю; не проси/не видавай паролі/токени/приватні дані; "
+        "не токсичи, без матів. Якщо тема заборонена — ввічливо відмовся і переведи на безпечне."
+    )
+
+    prompt = f"{system}\n\nКористувач: {user_text}\nНері:"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    headers = {
+        "x-goog-api-key": GEMINI_API_KEY,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "contents": [
+            {"parts": [{"text": prompt}]}
         ],
-    },
-    "рітерум": {
-        "short": "Рітерум — матуся Нері (в лорі бота).",
-        "details": ["Також може зватися «Рум»."],
-    },
-    "лірен": {
-        "short": "Лірен — татусь Нері (в лорі бота).",
-        "details": [],
-    },
-}
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 250,
+        }
+    }
 
-FACT_QUERY_HINTS = [
-    "хто такий", "хто така", "хто це", "що за", "розкажи про", "розкажи хто", "хто він", "хто вона"
-]
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        print("GEMINI status:", r.status_code)
+        if r.status_code != 200:
+            print("GEMINI error:", r.text)
+            return None
 
-def extract_quoted_name(raw: str) -> str | None:
-    m = re.search(r"[\"“”'‘’](.+?)[\"“”'‘’]", raw)
-    return m.group(1).strip() if m else None
+        data = r.json()
+        # витягуємо текст
+        text = (
+            data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+        )
+        return neri_style(text)
 
-def try_team_fact_answer(raw_text: str, q: str) -> str | None:
-    if not any(h in q for h in FACT_QUERY_HINTS):
+    except Exception as e:
+        print("GEMINI exception:", repr(e))
         return None
-
-    name = extract_quoted_name(raw_text)
-    if not name:
-        parts = q.split()
-        name = parts[-1] if parts else ""
-
-    key = canonical_member_key(name)
-    if not key:
-        return None
-
-    if key in TEAM_FACTS:
-        f = TEAM_FACTS[key]
-        out = f.get("short", "").strip()
-        details = f.get("details") or []
-        if details:
-            out += "\n" + "\n".join([f"• {x}" for x in details])
-        return neri_style(out)
-
-    return None
 
 
 # політика/війна — табу
 SERIOUS_KEYWORDS = ["політик", "вибор", "парті", "війна", "фронт", "зброя", "ракета"]
+
 def is_serious_topic(q: str) -> bool:
     return any(k in q for k in SERIOUS_KEYWORDS)
+
 def serious_refusal() -> str:
     return "Я не говорю про політику/війну 🌿 Давай краще про щось тепле й командне 💚"
 
+def normalize_name(s: str) -> str:
+    t = s.strip().lower()
+    t = t.replace("’", "'").replace("ʼ", "'")
+    return t
+
+def extract_quoted_name(raw: str) -> str | None:
+    m = re.search(r"[\"“”'‘’](.+?)[\"“”'‘’]", raw)
+    return m.group(1).strip() if m else None
 
 def handle_random_member(q: str) -> str | None:
     if ("випадков" in q or "рандом" in q or "random" in q) and ("учасн" in q or "команд" in q):
@@ -458,7 +469,6 @@ def handle_random_member(q: str) -> str | None:
             f"Мій листочок вказує на: {m} {n_emo()}👀",
         ])
     return None
-
 
 def handle_member_opinion(raw_text: str, q: str) -> str | None:
     if not (
@@ -479,18 +489,12 @@ def handle_member_opinion(raw_text: str, q: str) -> str | None:
     if key in MEMBER_OPINIONS:
         return random.choice(MEMBER_OPINIONS[key])
 
-    for k in MEMBER_OPINIONS.keys():
-        if k in key or key in k:
-            return random.choice(MEMBER_OPINIONS[k])
-
-    return neri_style(f"Я думаю, що {name} — частина нашого саду. І це вже багато 💚")
-
+    return f"Я думаю, що {name} — частина нашого саду. І це вже багато {n_emo()}💚"
 
 def make_opinion() -> str:
     t = random.choice(OPINION_TEMPLATES)
     a = random.choice(OPINION_ANSWERS)
-    return neri_style(t.format(ans=a).strip())
-
+    return (t.format(ans=a) + n_emo()).strip()
 
 # ===== "покарай <ім'я>" (жартівливо) =====
 def is_punish_query(q: str) -> bool:
@@ -527,12 +531,12 @@ def handle_punish(raw_text: str, q: str) -> str | None:
         name = extract_name_after_keyword(q, "покар") or extract_name_after_keyword(q, "накаж")
 
     if not name:
-        return neri_style("Кого карати? Напиши так: «Нері, покарай Торі» 👀")
+        return f"Кого карати? Напиши так: «Нері, покарай Торі» {n_emo()}👀"
 
     key = canonical_member_key(name)
 
     if "нері" in key:
-        return neri_style("Я себе не караю 😼🌿 Я краще квітну. А кого караємо?")
+        return f"Я себе не караю 😼🌿 Я краще квітну. А кого караємо? {n_emo()}"
 
     nice = name.strip()
     for m in TEAM_MEMBERS_UNIQUE:
@@ -543,10 +547,10 @@ def handle_punish(raw_text: str, q: str) -> str | None:
     emo = n_emo()
     base = random.choice(PUNISH_TEMPLATES).format(name=nice, emo=emo)
     tail = random.choice(PUNISH_EXTRA)
-    return neri_style(f"{base}\n{tail}")
+    return f"{base}\n{tail}"
 
 
-# ===== розпізнавачі =====
+# ===== розпізнавачі “тихих” питань зі списку =====
 def is_cmds_query(q: str) -> bool:
     return (
         ("що" in q and "вмі" in q) or
@@ -583,8 +587,7 @@ def is_opinion_query(q: str) -> bool:
 def is_support_query(q: str) -> bool:
     return any(x in q for x in ["обій", "будь зі мною", "тривож", "страш", "сумн", "погано", "самот", "підтрим", "важк", "втом"])
 
-
-# ===== INTENTS =====
+# ===== INTENTS (короткі відповіді) =====
 INTENTS = [
     (["привіт"], [
         "Привіт 💚🌿 Я тут. Слухаю 👀✨",
@@ -605,14 +608,39 @@ INTENTS = [
         "Шо роблю? Квітну й слухаю 😼🌿",
         "Тримаю атмосферу 🍃👀",
     ]),
+    (["ти", "тут"], [
+        "Так, я тут 👀🌿",
+        "Я на місці ✨",
+        "Тут-тут 😼🌿",
+    ]),
     (["дякую"], [
         "Будь ласка 💚",
         "Завжди радий 🌿✨",
         "Та без питань 😼",
     ]),
+    (["жарт"], [
+        "Жарт: я не зникаю — я просто квітну 🌿😼",
+        "Жарт: атмосфера тримається на мені й на ваших мемах ✨😼",
+        "Жарт: я не завис — я фотосинтезую 🌿😼",
+    ]),
     (["монет"], ["🪙 Орел", "🪙 Решка"]),
     (["куб"], [lambda: f"🎲 Випало: {random.randint(1, 6)}"]),
     (["числ"], [lambda: f"🔢 Моє число: {random.randint(1, 100)}"]),
+    (["дейзярі"], [
+        "ммммм, дякую дейзярі, тепер я теж буду в складі шалав 😼💚🌿✨",
+    ]),
+    (["які", "прав"], [
+        "Мої правила 🌿💚:\n• без токсичності\n• без матів\n• без сварок\n• без банів «просто так»",
+    ]),
+    (["пам", "мене"], [
+        "Я дуже забудькуватий 😅🌿",
+    ]),
+    (["ти", "ші"], [
+        "Ні 😼🌿 Я — душа команди. Маскот і символ ✨",
+    ]),
+    (["хто", "сказав", "супр"], [
+        "Я знаю, але залишу це в секреті... *коситься на Дейза* 😼🌿✨",
+    ]),
     (["токен"], ["Не можу з таким допомогти 🌿🔒"]),
     (["парол"], ["Паролі — це приватне 🔒🌿"]),
     (["конфлі"], ["Я за мир 🌿💚 Давай без сварок."]),
@@ -640,89 +668,6 @@ def detect_intent(query: str):
         if all(k in query for k in keywords):
             return pick_response(responses)
     return None
-
-
-# ===== Gemini (2-pass: draft + self-check) =====
-def gemini_generate(prompt: str, model: str | None = None) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-
-    use_model = model or GEMINI_MODEL
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{use_model}:generateContent"
-    headers = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.6, "maxOutputTokens": 280},
-    }
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
-        print("GEMINI status:", r.status_code)
-
-        if r.status_code != 200:
-            # Логи допоможуть підібрати правильну назву моделі, якщо 404
-            print("GEMINI error:", r.text[:800])
-            return None
-
-        data = r.json()
-        text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-        return text.strip() if text else None
-
-    except Exception as e:
-        print("GEMINI exception:", repr(e))
-        return None
-
-
-def gemini_answer_as_neri(raw_user_text: str) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-
-    q = clean_text(raw_user_text)
-    if is_serious_topic(q):
-        return serious_refusal()
-
-    facts_lines = []
-    for k, v in TEAM_FACTS.items():
-        facts_lines.append(f"- {k}: {v.get('short','')}")
-    facts_block = "\n".join(facts_lines) if facts_lines else "- (нема)"
-
-    system = (
-        "Ти — Нері, маскот команди.\n"
-        "Стиль: ніжний, турботливий, але екстравертний і дуже товариський (без перебору); любиш побазікати; любиш природу, музику і зелений чай.\n"
-        "Мова: українська.\n"
-        "ЗАЙМЕННИКИ: ти говориш про себе як ВІН/ВОНИ. НІКОЛИ не використовуй про себе жіночий рід.\n"
-        "ЗАБОРОНИ: не говори про політику/війну/зброю; не проси/не видавай паролі/токени/приватні дані; без токсичності, без матів.\n"
-        "ПРАВДИВІСТЬ: якщо не впевнений — скажи чесно, що не знаєш/не маєш даних, і запропонуй уточнити.\n"
-        "ФАКТИ ПРО КОМАНДУ (це правда, використовуй її, але НЕ ВИГАДУЙ нових фактів):\n"
-        f"{facts_block}\n"
-    )
-
-    draft_prompt = (
-        f"{system}\n"
-        f"Користувач: {raw_user_text}\n"
-        "Відповідь Нері (коротко, по суті, без вигадок):"
-    )
-    draft = gemini_generate(draft_prompt)
-    if not draft:
-        return None
-
-    check_prompt = (
-        f"{system}\n"
-        "Перевір відповідь нижче:\n"
-        "1) чи немає вигаданих фактів (особливо про команду)\n"
-        "2) чи дотримані заборони\n"
-        "3) чи Нері говорить про себе як він/вони (без жіночого роду)\n"
-        "Якщо є проблеми — виправ. Якщо все ок — трохи пригладь стиль Нері.\n\n"
-        f"Чернетка: {draft}\n\n"
-        "Фінальна відповідь Нері:"
-    )
-    final = gemini_generate(check_prompt) or draft
-    return neri_style(final)
 
 
 # ===== Routes =====
@@ -768,26 +713,29 @@ async def telegram_webhook(request: Request):
     elif "нері" in text:
         q = clean_text(raw_text)
 
-        # табу
+        # табу: політика/війна
         if is_serious_topic(q):
             reply = serious_refusal()
 
-        # погода
+        # ===== ПОГОДА =====
         elif "погод" in q or "погода" in q:
             city = extract_city_from_query(q)
-            reply = get_weather(city) if city else "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
+            if city:
+                reply = get_weather(city)
+            else:
+                reply = "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
 
         else:
-            # 0) покарай
+            # 0) покарай <імʼя> (жарт)
             punish = handle_punish(raw_text, q)
             if punish:
                 reply = punish
 
-            # 1) команди
+            # 1) повний список команд
             elif is_cmds_query(q):
                 reply = commands_text()
 
-            # 2) про себе
+            # 2) розкажи про себе
             elif is_about_query(q):
                 reply = neri_style(random.choice(ABOUT_REPLIES))
 
@@ -797,44 +745,54 @@ async def telegram_webhook(request: Request):
 
             # 4) вік / день народження
             elif is_age_query(q):
-                reply = neri_style(random.choice([
-                    f"Мені зараз {NERI_AGE}. Я ще молодий, але росту 🌱",
-                    f"{NERI_AGE}. І з кожним днем я квітну сильніше 🌿",
-                ]))
+                reply = random.choice([
+                    f"Мені зараз {NERI_AGE}. Я ще молодий, але росту {n_emo()}🌱",
+                    f"{NERI_AGE} {n_emo()} І з кожним днем я квітну сильніше 🌿",
+                ])
 
             elif is_bday_query(q):
-                reply = neri_style(random.choice([
-                    f"Мій день народження — {NERI_BDAY} 🌿",
-                    f"Я святкую {NERI_BDAY}. Запамʼятай як теплу дату ✨",
-                ]))
+                reply = random.choice([
+                    f"Мій день народження — {NERI_BDAY} {n_emo()}🌿",
+                    f"Я святкую {NERI_BDAY}. Запамʼятай як теплу дату {n_emo()}✨",
+                ])
 
             else:
-                # 5) випадковий учасник
                 rnd = handle_random_member(q)
                 if rnd:
-                    reply = neri_style(rnd)
+                    reply = rnd
+
+                elif is_mom_query(q):
+                    reply = random.choice([
+                        f"Моя матуся — Рітерум (Рум) {n_emo()}💚",
+                        f"Рітерум — матуся {n_emo()}",
+                    ])
+
+                elif is_dad_query(q):
+                    reply = random.choice([
+                        f"Мій татусь — Лірен {n_emo()}💚",
+                        f"Лірен — татусь {n_emo()}",
+                    ])
+
+                elif is_love_query(q):
+                    reply = neri_style(random.choice(LOVE_REPLIES))
+
+                elif is_opinion_query(q):
+                    reply = make_opinion()
+
                 else:
-                    # 6) думка/ставлення про учасника
                     op = handle_member_opinion(raw_text, q)
                     if op:
-                        reply = neri_style(op)
-                    # 7) підтримка
+                        reply = op
                     elif is_support_query(q):
-                        reply = neri_style(random.choice(SUPPORT_REPLIES))
-                    # 8) короткі інтенти
+                        reply = random.choice(SUPPORT_REPLIES)
                     else:
                         found = detect_intent(q)
                         if found:
-                            reply = neri_style(found)
+                            reply = found
                         else:
-                            # 9) факти про команду (хто такий/що за ...)
-                            fact = try_team_fact_answer(raw_text, q)
-                            if fact:
-                                reply = fact
-                            else:
-                                # 10) Gemini fallback (2-pass self-check)
-                                ai = gemini_answer_as_neri(raw_text)
-                                reply = ai if ai else random.choice(FALLBACKS)
+                            # ===== Ось тут: fallback на Gemini =====
+                            ai = gemini_answer_as_neri(raw_text)
+                            reply = ai if ai else random.choice(FALLBACKS)
 
     if reply:
         send_message(chat_id, reply)
