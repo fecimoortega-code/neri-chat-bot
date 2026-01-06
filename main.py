@@ -2,7 +2,6 @@ import os
 import re
 import random
 import requests
-import urllib.parse
 from fastapi import FastAPI, Request
 
 # ===== ENV =====
@@ -44,63 +43,155 @@ async def startup():
 
 
 # ===== Weather =====
-def get_weather(city: str) -> str:
-    if not WEATHER_API_KEY:
-        return "Я не відчуваю погоду зараз 🌿 (немає ключа WEATHER_API_KEY)"
+CITY_ALIASES = {
+    "києві": "київ", "києва": "київ", "київ": "київ",
+    "львові": "львів", "львова": "львів", "львів": "львів",
+    "одесі": "одеса", "одеси": "одеса", "одеса": "одеса",
+    "харкові": "харків", "харкова": "харків", "харків": "харків",
+    "дніпрі": "дніпро", "дніпра": "дніпро", "дніпро": "дніпро",
+    "запоріжжі": "запоріжжя", "запоріжжя": "запоріжжя",
+}
 
-    city_q = urllib.parse.quote(city)
-    url = (
-        "https://api.openweathermap.org/data/2.5/weather"
-        f"?q={city_q},UA&appid={WEATHER_API_KEY}&units=metric&lang=uk"
-    )
+# латинські варіанти для стабільного пошуку в OpenWeather
+CITY_LATIN = {
+    "київ": "Kyiv",
+    "львів": "Lviv",
+    "одеса": "Odesa",
+    "харків": "Kharkiv",
+    "дніпро": "Dnipro",
+    "запоріжжя": "Zaporizhzhia",
+}
 
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code != 200:
-            return f"Не можу знайти погоду для «{city}» 🌿 Спробуй інше місто."
-
-        data = r.json()
-        temp = round(data["main"]["temp"])
-        feels = round(data["main"]["feels_like"])
-        desc = data["weather"][0]["description"]
-
-        return (
-            f"🌤 Погода в {city}:\n"
-            f"{desc.capitalize()}, {temp}°C\n"
-            f"Відчувається як {feels}°C 🌿"
-        )
-    except Exception:
-        return "Щось не так з погодою… але я все одно квітну 🌿"
-
+WEATHER_STOPWORDS = {
+    "погода", "яка", "яке", "який", "зараз", "сьогодні", "будь", "ласка",
+    "покажи", "скажи", "напиши", "негайно", "будь-ласка", "пліз", "плиз",
+    "у", "в", "на", "по", "для", "місті", "місто", "про",
+    "нері"
+}
 
 def extract_city_from_query(q: str) -> str | None:
     # q вже без "нері," і в lower()
-    words = q.split()
-    city = None
+    s = re.sub(r"[^\w\s\-’ʼіїєґа-яА-Я]", " ", q, flags=re.UNICODE).strip().lower()
+    parts = [p for p in s.split() if p and p not in WEATHER_STOPWORDS]
+    if not parts:
+        return None
+    # якщо останні 2 слова схожі на назву (наприклад "івано франківськ")
+    if len(parts) >= 2:
+        last2 = " ".join(parts[-2:])
+        if len(last2) >= 4:
+            return last2
+    return parts[-1]
 
-    # варіанти: "погода львів", "яка погода в києві", "погода у харкові"
-    if "погода" in words:
-        idx = words.index("погода")
-        # "погода львів"
-        if idx + 1 < len(words):
-            city = words[idx + 1]
+def normalize_city(city: str) -> str:
+    c = city.strip().lower()
+    if c in CITY_ALIASES:
+        return CITY_ALIASES[c]
 
-    # "в/у <місто>"
-    for i, w in enumerate(words):
-        if w in ("в", "у") and i + 1 < len(words):
-            city = words[i + 1]
-            break
+    # легка евристика для відмінків
+    for suffix, repl in [("ові", ""), ("еві", ""), ("і", "а"), ("у", "а"), ("ї", "я")]:
+        if len(c) > 4 and c.endswith(suffix):
+            guess = c[:-len(suffix)] + repl
+            return CITY_ALIASES.get(guess, guess)
 
-    if not city:
+    return c
+
+def weather_emoji(main: str) -> str:
+    m = (main or "").lower()
+    if "clear" in m:
+        return "☀️"
+    if "cloud" in m:
+        return "☁️"
+    if "rain" in m or "drizzle" in m:
+        return "🌧️"
+    if "thunder" in m:
+        return "⛈️"
+    if "snow" in m:
+        return "❄️"
+    if "mist" in m or "fog" in m or "haze" in m:
+        return "🌫️"
+    return "🌿"
+
+def _geocode_candidates(city_norm: str) -> list[str]:
+    lat = CITY_LATIN.get(city_norm)
+    cands = []
+    # 1) кирилиця з країною
+    cands.append(f"{city_norm},UA")
+    # 2) кирилиця без країни
+    cands.append(city_norm)
+    # 3-4) латиниця (якщо є)
+    if lat:
+        cands.append(f"{lat},UA")
+        cands.append(lat)
+    return cands
+
+def _try_geocode(q: str):
+    geo_url = "https://api.openweathermap.org/geo/1.0/direct"
+    params = {"q": q, "limit": 5, "appid": WEATHER_API_KEY}
+    gr = requests.get(geo_url, params=params, timeout=10)
+    print("GEOCODE TRY:", q, gr.status_code, gr.text)
+
+    if gr.status_code != 200:
         return None
 
-    # прибираємо пунктуацію
-    city = re.sub(r"[^\wа-щьюяєіїґ\-’']", "", city, flags=re.IGNORECASE)
-    if not city:
+    arr = gr.json()
+    if not arr:
         return None
 
-    # робимо нормальний вигляд (Київ, Львів...)
-    return city.capitalize()
+    ua = [x for x in arr if x.get("country") == "UA"]
+    return ua[0] if ua else arr[0]
+
+def get_weather(city_raw: str) -> str:
+    if not WEATHER_API_KEY:
+        return "Я не відчуваю погоду зараз 🌿 (немає ключа WEATHER_API_KEY)"
+
+    city_norm = normalize_city(city_raw)
+
+    try:
+        # --- Geocoding (кілька спроб) ---
+        geo = None
+        for cand in _geocode_candidates(city_norm):
+            geo = _try_geocode(cand)
+            if geo:
+                break
+
+        if not geo:
+            return f"Не можу знайти погоду для «{city_raw}» 🌿 Спробуй інше місто."
+
+        lat = geo["lat"]
+        lon = geo["lon"]
+        nice_name = (
+            geo.get("local_names", {}).get("uk")
+            or geo.get("name")
+            or city_raw
+        )
+
+        # --- Current weather ---
+        w_url = "https://api.openweathermap.org/data/2.5/weather"
+        w_params = {
+            "lat": lat,
+            "lon": lon,
+            "appid": WEATHER_API_KEY,
+            "units": "metric",
+            "lang": "uk",
+        }
+        wr = requests.get(w_url, params=w_params, timeout=10)
+        print("WEATHER:", wr.status_code, wr.text)
+
+        if wr.status_code != 200:
+            return f"Щось не так з погодою для «{nice_name}» 🌿"
+
+        w = wr.json()
+        temp = round(w["main"]["temp"])
+        feels = round(w["main"]["feels_like"])
+        desc = w["weather"][0].get("description", "")
+        main = w["weather"][0].get("main", "")
+        em = weather_emoji(main)
+
+        return f"{em} {nice_name}: {temp}°C (відчувається як {feels}°C), {desc} 🌿"
+
+    except Exception as e:
+        print("WEATHER ERROR:", repr(e))
+        return "Я спіткнувся об хмаринку 🌿 Спробуй ще раз трохи пізніше."
 
 
 # ===== Brain =====
@@ -108,6 +199,11 @@ NERI_PREFIX = re.compile(r"^\s*нері\s*[,:\-–—]?\s*", re.IGNORECASE)
 
 INTENTS = [
     # ===== БАЗОВЕ =====
+    (["привіт"], [
+        "Привіт 💚🌿 Я тут. Слухаю 👀✨",
+        "О, привіт 😼🌿 Як твій день?",
+        "Привіт-привіт ✨🌱 Я вже квітну, а ти?",
+    ]),
     (["як", "справ"], [
         "Я тут 🌿 Все добре. А в тебе? 💚",
         "Спокійно й тепло 😌🌿 Ти як?",
@@ -255,6 +351,7 @@ async def telegram_webhook(request: Request):
             "Привіт ✨ Я Нері.\n\n"
             "Я маскот і символ команди 💚🌿\n\n"
             "Спробуй:\n"
+            "• Нері, привіт\n"
             "• Нері, як справи?\n"
             "• Нері, хто ти?\n"
             "• Нері, жарт\n"
@@ -270,6 +367,7 @@ async def telegram_webhook(request: Request):
             "• атмосфери 🌿\n"
             "• погоди в містах України ☁️\n\n"
             "Приклади:\n"
+            "«Нері, привіт»\n"
             "«Нері, погода в Києві»\n"
             "«Нері, яка погода у Львові?»"
         )
