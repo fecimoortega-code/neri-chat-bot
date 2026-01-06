@@ -2,11 +2,13 @@ import os
 import re
 import random
 import requests
+import urllib.parse
 from fastapi import FastAPI, Request
 
 # ===== ENV =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -37,7 +39,68 @@ async def startup():
     print("Starting up...")
     print("BOT_TOKEN exists:", bool(BOT_TOKEN))
     print("WEBHOOK_URL:", WEBHOOK_URL)
+    print("WEATHER_API_KEY exists:", bool(WEATHER_API_KEY))
     set_webhook()
+
+
+# ===== Weather =====
+def get_weather(city: str) -> str:
+    if not WEATHER_API_KEY:
+        return "Я не відчуваю погоду зараз 🌿 (немає ключа WEATHER_API_KEY)"
+
+    city_q = urllib.parse.quote(city)
+    url = (
+        "https://api.openweathermap.org/data/2.5/weather"
+        f"?q={city_q},UA&appid={WEATHER_API_KEY}&units=metric&lang=uk"
+    )
+
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return f"Не можу знайти погоду для «{city}» 🌿 Спробуй інше місто."
+
+        data = r.json()
+        temp = round(data["main"]["temp"])
+        feels = round(data["main"]["feels_like"])
+        desc = data["weather"][0]["description"]
+
+        return (
+            f"🌤 Погода в {city}:\n"
+            f"{desc.capitalize()}, {temp}°C\n"
+            f"Відчувається як {feels}°C 🌿"
+        )
+    except Exception:
+        return "Щось не так з погодою… але я все одно квітну 🌿"
+
+
+def extract_city_from_query(q: str) -> str | None:
+    # q вже без "нері," і в lower()
+    words = q.split()
+    city = None
+
+    # варіанти: "погода львів", "яка погода в києві", "погода у харкові"
+    if "погода" in words:
+        idx = words.index("погода")
+        # "погода львів"
+        if idx + 1 < len(words):
+            city = words[idx + 1]
+
+    # "в/у <місто>"
+    for i, w in enumerate(words):
+        if w in ("в", "у") and i + 1 < len(words):
+            city = words[i + 1]
+            break
+
+    if not city:
+        return None
+
+    # прибираємо пунктуацію
+    city = re.sub(r"[^\wа-щьюяєіїґ\-’']", "", city, flags=re.IGNORECASE)
+    if not city:
+        return None
+
+    # робимо нормальний вигляд (Київ, Львів...)
+    return city.capitalize()
 
 
 # ===== Brain =====
@@ -195,7 +258,8 @@ async def telegram_webhook(request: Request):
             "• Нері, як справи?\n"
             "• Нері, хто ти?\n"
             "• Нері, жарт\n"
-            "• Нері, монетка / кубик / число"
+            "• Нері, монетка / кубик / число\n"
+            "• Нері, погода в Києві"
         )
 
     elif text == "/help":
@@ -203,14 +267,26 @@ async def telegram_webhook(request: Request):
             "🧩 Я тут для:\n"
             "• допомоги\n"
             "• ігор\n"
-            "• атмосфери 🌿\n\n"
-            "Просто клич: «Нері, ...»"
+            "• атмосфери 🌿\n"
+            "• погоди в містах України ☁️\n\n"
+            "Приклади:\n"
+            "«Нері, погода в Києві»\n"
+            "«Нері, яка погода у Львові?»"
         )
 
     elif "нері" in text:
         q = clean_text(message.get("text", ""))
-        found = detect_intent(q)
-        reply = found if found else random.choice(FALLBACKS)
+
+        # ===== ПОГОДА =====
+        if "погод" in q or "погода" in q:
+            city = extract_city_from_query(q)
+            if city:
+                reply = get_weather(city)
+            else:
+                reply = "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
+        else:
+            found = detect_intent(q)
+            reply = found if found else random.choice(FALLBACKS)
 
     if reply:
         send_message(chat_id, reply)
