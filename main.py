@@ -8,7 +8,10 @@ from fastapi import FastAPI, Request
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # <-- NEW
+
+# ===== NEW: GEMINI =====
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # рекомендовано
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -41,6 +44,7 @@ async def startup():
     print("WEBHOOK_URL:", WEBHOOK_URL)
     print("WEATHER_API_KEY exists:", bool(WEATHER_API_KEY))
     print("GEMINI_API_KEY exists:", bool(GEMINI_API_KEY))
+    print("GEMINI_MODEL:", GEMINI_MODEL)
     set_webhook()
 
 
@@ -191,14 +195,21 @@ NATURE_EMOJIS = ["🌿", "🍃", "🌱", "🍀", "🪴", "🌸", "🌼", "✨", 
 def n_emo():
     return random.choice(NATURE_EMOJIS)
 
-# інколи капс, але рідко
-def maybe_caps(s: str, p: float = 0.08) -> str:
-    if not s:
-        return s
-    if random.random() < p:
-        # трохи "екстравертного" акценту, але не все речення
-        return s.upper()
-    return s
+# ===== NEW: “екстравертність” (інколи капсом, але рідко) =====
+def neri_style(text: str) -> str:
+    if not text:
+        return text
+    # 8% шанс зробити коротку фразу капсом (без перебору)
+    if random.random() < 0.08:
+        # капсом тільки перше речення/фраза
+        parts = re.split(r"(\n|[.!?])", text, maxsplit=1)
+        if parts:
+            parts[0] = parts[0].upper()
+            text = "".join(parts)
+    # додай трохи “балакучості” дуже обережно
+    if random.random() < 0.12 and len(text) < 250:
+        text = text + f" {random.choice(['💚', '✨', '🌿', '🍃'])}"
+    return text
 
 NERI_AGE = 2
 NERI_BDAY = "10.09.2025"
@@ -231,6 +242,8 @@ ABOUT_REPLIES = [
     "Нері — це не просто імʼя. Це символ команди 🌿✨",
     "Я Нері: маскот, талісман і тиха сила команди 🌱✨",
     "Я тут для допомоги, ігор і атмосфери 💚🌿",
+    "Я ніжний і турботливий, АЛЕ ДУЖЕ ТОВАРИСЬКИЙ 😼🌿✨",
+    "Я люблю побазікати, природу, музику і зелений чай 🍵🌿",
 ]
 
 INTERESTING_REPLIES = [
@@ -341,46 +354,15 @@ def canonical_member_key(name_raw: str) -> str:
     key = _clean_name_token(name_raw)
     if not key:
         return ""
-
     if key in ALIAS_TO_MEMBER_KEY:
         return ALIAS_TO_MEMBER_KEY[key]
-
-    candidates = {key}
-
-    if len(key) > 3:
-        if key.endswith("о"):
-            candidates.add(key[:-1] + "а")
-        if key.endswith(("и", "і")):
-            candidates.add(key[:-1] + "а")
-        if key.endswith("у"):
-            candidates.add(key[:-1] + "а")
-            candidates.add(key[:-1])
-        if key.endswith("ю"):
-            candidates.add(key[:-1] + "я")
-            candidates.add(key[:-1] + "а")
-        if key.endswith("е"):
-            candidates.add(key[:-1])
-            candidates.add(key[:-1] + "я")
-        if key.endswith(("ом", "ою", "ею")):
-            base = re.sub(r"(ом|ою|ею)$", "", key)
-            candidates.add(base)
-            candidates.add(base + "а")
-            candidates.add(base + "я")
-
-    for c in candidates:
-        c = _clean_name_token(c)
-        if c in ALIAS_TO_MEMBER_KEY:
-            return ALIAS_TO_MEMBER_KEY[c]
-
     return key
 
 
-# ===== TABOO =====
+# політика/війна — табу
 SERIOUS_KEYWORDS = ["політик", "вибор", "парті", "війна", "фронт", "зброя", "ракета"]
-
 def is_serious_topic(q: str) -> bool:
     return any(k in q for k in SERIOUS_KEYWORDS)
-
 def serious_refusal() -> str:
     return "Я не говорю про політику/війну 🌿 Давай краще про щось тепле й командне 💚"
 
@@ -433,7 +415,7 @@ def make_opinion() -> str:
     a = random.choice(OPINION_ANSWERS)
     return (t.format(ans=a) + n_emo()).strip()
 
-# ===== "покарай <ім'я>" =====
+# ===== "покарай <ім'я>" (жартівливо) =====
 def is_punish_query(q: str) -> bool:
     return ("покар" in q) or ("накаж" in q)
 
@@ -486,89 +468,7 @@ def handle_punish(raw_text: str, q: str) -> str | None:
     tail = random.choice(PUNISH_EXTRA)
     return f"{base}\n{tail}"
 
-
-# ===== Gemini fallback (коли Нері "не знає") =====
-def gemini_available() -> bool:
-    return bool(GEMINI_API_KEY)
-
-NERI_SYSTEM_STYLE = """
-Ти — Нері (маскот команди). Характер: ніжний, турботливий, ДУЖЕ товариський екстраверт.
-Любиш природу, музику і зелений чай. Відповідаєш по-дружньому, тепло, з емодзі 🌿🍃✨😼👀.
-ІНОДІ (рідко) можеш підсилити емоцію КАПСОМ, але без перебору.
-
-ЗАБОРОНИ:
-- Не обговорюй політику та війну (якщо питають — ввічливо відмовся й переведи тему).
-- Не допомагай з паролями/токенами/зломом/шкідливими діями.
-- Якщо питання небезпечне або токсичне — відмов і запропонуй безпечну альтернативу.
-
-ФОРМАТ:
-- Пиши українською.
-- Коротко і по суті, але дружньо.
-- Не вигадуй фактів. Якщо не впевнений — скажи що можеш помилятись.
-"""
-
-def ask_gemini_as_neri(user_text: str) -> str | None:
-    """
-    Викликає Gemini через Google AI Studio API key.
-    Повертає текст відповіді або None якщо щось пішло не так.
-    """
-    if not GEMINI_API_KEY:
-        return None
-
-    # Важливо: для Google AI Studio (Generative Language API / Gemini API)
-    # універсальний REST endpoint:
-    # https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=...
-    model = "gemini-1.5-flash"  # швидкий і дешевий/часто доступний
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
-    headers = {"Content-Type": "application/json"}
-
-    payload = {
-        "contents": [
-            {"role": "user", "parts": [{"text": f"{NERI_SYSTEM_STYLE}\n\nКористувач: {user_text}\nНері:"}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.8,
-            "topP": 0.9,
-            "maxOutputTokens": 280,
-        },
-        "safetySettings": [
-            # залишаємо дефолтні фільтри Google, але можна тонко підкрутити при потребі
-        ],
-    }
-
-    try:
-        r = requests.post(url, params={"key": GEMINI_API_KEY}, json=payload, headers=headers, timeout=15)
-        print("GEMINI status:", r.status_code, r.text[:300])
-
-        if r.status_code != 200:
-            return None
-
-        data = r.json()
-        # очікувана структура: candidates[0].content.parts[0].text
-        candidates = data.get("candidates") or []
-        if not candidates:
-            return None
-
-        content = candidates[0].get("content") or {}
-        parts = content.get("parts") or []
-        if not parts:
-            return None
-
-        text = parts[0].get("text", "").strip()
-        if not text:
-            return None
-
-        # Трошки "екстравертного" блиску (рідко капс)
-        text = maybe_caps(text, p=0.08)
-        return text
-
-    except Exception as e:
-        print("GEMINI ERROR:", repr(e))
-        return None
-
-
-# ===== “тихі” розпізнавачі =====
+# ===== розпізнавачі =====
 def is_cmds_query(q: str) -> bool:
     return (
         ("що" in q and "вмі" in q) or
@@ -605,7 +505,7 @@ def is_opinion_query(q: str) -> bool:
 def is_support_query(q: str) -> bool:
     return any(x in q for x in ["обій", "будь зі мною", "тривож", "страш", "сумн", "погано", "самот", "підтрим", "важк", "втом"])
 
-# ===== INTENTS (короткі відповіді) =====
+# ===== INTENTS =====
 INTENTS = [
     (["привіт"], [
         "Привіт 💚🌿 Я тут. Слухаю 👀✨",
@@ -626,39 +526,14 @@ INTENTS = [
         "Шо роблю? Квітну й слухаю 😼🌿",
         "Тримаю атмосферу 🍃👀",
     ]),
-    (["ти", "тут"], [
-        "Так, я тут 👀🌿",
-        "Я на місці ✨",
-        "Тут-тут 😼🌿",
-    ]),
     (["дякую"], [
         "Будь ласка 💚",
         "Завжди радий 🌿✨",
         "Та без питань 😼",
     ]),
-    (["жарт"], [
-        "Жарт: я не зникаю — я просто квітну 🌿😼",
-        "Жарт: атмосфера тримається на мені й на ваших мемах ✨😼",
-        "Жарт: я не завис — я фотосинтезую 🌿😼",
-    ]),
     (["монет"], ["🪙 Орел", "🪙 Решка"]),
     (["куб"], [lambda: f"🎲 Випало: {random.randint(1, 6)}"]),
     (["числ"], [lambda: f"🔢 Моє число: {random.randint(1, 100)}"]),
-    (["дейзярі"], [
-        "ммммм, дякую дейзярі, тепер я теж буду в складі шалав 😼💚🌿✨",
-    ]),
-    (["які", "прав"], [
-        "Мої правила 🌿💚:\n• без токсичності\n• без матів\n• без сварок\n• без банів «просто так»",
-    ]),
-    (["пам", "мене"], [
-        "Я дуже забудькуватий 😅🌿",
-    ]),
-    (["ти", "ші"], [
-        "Ні 😼🌿 Я — душа команди. Маскот і символ ✨",
-    ]),
-    (["хто", "сказав", "супр"], [
-        "Я знаю, але залишу це в секреті... *коситься на Дейза* 😼🌿✨",
-    ]),
     (["токен"], ["Не можу з таким допомогти 🌿🔒"]),
     (["парол"], ["Паролі — це приватне 🔒🌿"]),
     (["конфлі"], ["Я за мир 🌿💚 Давай без сварок."]),
@@ -671,6 +546,12 @@ FALLBACKS = [
     "Я почув тебе 🌿 Але не до кінця зрозумів. Спробуй ще раз, коротко 💚",
 ]
 
+def clean_text(text: str) -> str:
+    t = text.strip()
+    t = NERI_PREFIX.sub("", t)
+    t = re.sub(r"\s+", " ", t)
+    return t.lower()
+
 def pick_response(options):
     choice = random.choice(options)
     return choice() if callable(choice) else choice
@@ -681,11 +562,63 @@ def detect_intent(query: str):
             return pick_response(responses)
     return None
 
-def clean_text(text: str) -> str:
-    t = text.strip()
-    t = NERI_PREFIX.sub("", t)
-    t = re.sub(r"\s+", " ", t)
-    return t.lower()
+# ===== NEW: Gemini fallback =====
+def gemini_generate_neri_answer(user_text: str) -> str | None:
+    if not GEMINI_API_KEY:
+        return None
+
+    # легкий захист: не ліземо в політику/війну навіть через ШІ
+    q = clean_text(user_text)
+    if is_serious_topic(q):
+        return serious_refusal()
+
+    system_style = (
+        "Ти — Нері, маскот команди. Тон: ніжний, турботливий, "
+        "але товариський екстраверт (без перебору). Любиш природу, музику і зелений чай. "
+        "Іноді можеш написати КАПСОМ, але рідко. "
+        "Відповідай українською, коротко і дружньо. "
+        "Заборони: не говори про політику/війну; не допомагай з паролями/токенами/зламом; "
+        "не будь токсичним, без матів. "
+        "Якщо питання небезпечне або заборонене — ввічливо відмов і запропонуй безпечну альтернативу. "
+        "Додавай інколи 🌿🍃✨, але не спам."
+    )
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    headers = {
+        "x-goog-api-key": GEMINI_API_KEY,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": f"{system_style}\n\nПитання користувача:\n{user_text}"}],
+            }
+        ]
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=20)
+        print("GEMINI status:", r.status_code, r.text[:400])
+
+        if r.status_code != 200:
+            # якщо модель не знайдена — підкажемо в логах
+            return None
+
+        data = r.json()
+        text = (
+            data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+        )
+        text = (text or "").strip()
+        return neri_style(text) if text else None
+
+    except Exception as e:
+        print("GEMINI ERROR:", repr(e))
+        return None
 
 
 # ===== Routes =====
@@ -722,8 +655,7 @@ async def telegram_webhook(request: Request):
             "• Нері, погода в Києві\n"
             "• Нері, назви випадкового учасника команди\n"
             "• Нері, що ти думаєш про \"Торі\"\n"
-            "• Нері, покарай \"<імʼя>\"\n"
-            "• (якщо я чогось не знаю — підключу розумну хмаринку ✨🌿)"
+            "• Нері, покарай \"<імʼя>\""
         )
 
     elif text == "/help":
@@ -732,44 +664,33 @@ async def telegram_webhook(request: Request):
     elif "нері" in text:
         q = clean_text(raw_text)
 
-        # табу: політика/війна
         if is_serious_topic(q):
             reply = serious_refusal()
 
-        # ===== ПОГОДА =====
         elif "погод" in q or "погода" in q:
             city = extract_city_from_query(q)
-            if city:
-                reply = get_weather(city)
-            else:
-                reply = "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
+            reply = get_weather(city) if city else "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
 
         else:
-            # 0) покарай <імʼя>
             punish = handle_punish(raw_text, q)
             if punish:
                 reply = punish
 
-            # 1) команди
             elif is_cmds_query(q):
                 reply = commands_text()
 
-            # 2) про себе
             elif is_about_query(q):
                 reply = random.choice(ABOUT_REPLIES) + f" {n_emo()}"
 
-            # 3) цікаве
             elif is_interesting_query(q):
                 reply = random.choice(INTERESTING_REPLIES) + f" {n_emo()}"
 
-            # 4) вік
             elif is_age_query(q):
                 reply = random.choice([
                     f"Мені зараз {NERI_AGE}. Я ще молодий, але росту {n_emo()}🌱",
                     f"{NERI_AGE} {n_emo()} І з кожним днем я квітну сильніше 🌿",
                 ])
 
-            # 5) дн
             elif is_bday_query(q):
                 reply = random.choice([
                     f"Мій день народження — {NERI_BDAY} {n_emo()}🌿",
@@ -807,15 +728,13 @@ async def telegram_webhook(request: Request):
                         reply = random.choice(SUPPORT_REPLIES)
                     else:
                         found = detect_intent(q)
-                        if found:
-                            reply = found
-                        else:
-                            # ===== FINAL fallback: Gemini =====
-                            if gemini_available():
-                                ai = ask_gemini_as_neri(raw_text)
-                                reply = ai if ai else random.choice(FALLBACKS)
-                            else:
-                                reply = random.choice(FALLBACKS)
+                        reply = found if found else random.choice(FALLBACKS)
+
+                # ===== NEW: якщо це FALLBACK -> пробуємо Gemini =====
+                if reply in FALLBACKS:
+                    ai = gemini_generate_neri_answer(raw_text)
+                    if ai:
+                        reply = ai
 
     if reply:
         send_message(chat_id, reply)
