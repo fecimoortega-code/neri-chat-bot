@@ -538,6 +538,21 @@ def random_member_reply() -> str:
         line += f"\n{prof['link']}"
     return line
 
+# ===== "Нері, привіт" ✅ ДОДАНО =====
+def is_hi_query(q: str) -> bool:
+    qq = (q or "").strip().lower()
+    return qq in ("привіт", "привiт", "хай", "хей", "йо", "hello", "hi")
+
+HI_REPLIES = [
+    "Привіт 😼🌿 Я Нері. Як ти?",
+    "Хей-хей! Я тут 🌿✨ Що робимо?",
+    "Привіт! Тримаю атмосферу 💚🌿",
+    "Оу 👀 Привіт-привіт! Як день?",
+]
+
+def hi_reply() -> str:
+    return random.choice(HI_REPLIES)
+
 def commands_text() -> str:
     return (
         f"Ось мої основні команди {n_emo()}:\n\n"
@@ -784,6 +799,10 @@ async def telegram_webhook(request: Request):
         # табу
         if is_serious_topic(q):
             reply = serious_refusal()
+
+        # ===== "Нері, привіт" ✅ ДОДАНО =====
+        elif is_hi_query(q):
+            reply = neri_style(hi_reply())
 
         # займенники ✅ ДОДАНО
         elif is_pronouns_query(q):
