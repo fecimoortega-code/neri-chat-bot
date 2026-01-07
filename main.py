@@ -239,7 +239,7 @@ def neri_style(text: str) -> str:
     return t
 
 NERI_AGE = 2
-NERI_BDAY = "10.09.2025"
+NERI_BDAY = "16.09.2025"
 
 # ===== Mom/Dad =====
 def is_mom_query(q: str) -> bool:
@@ -261,7 +261,6 @@ DAD_REPLIES = [
 ]
 
 # ===== Team profiles (хто такий/така) =====
-# ТУТ ти можеш швидко правити ролі/імена/лінки
 TEAM_PROFILES = {
     "nerineris": {"name": "Nerineris", "ua": "Нері", "role": "Найкраща пусічка у СВІТІ", "link": "https://t.me/Nerineris"},
     "riterum":   {"name": "Riterum (Рум)", "ua": "Рітерум", "role": "Лідер, вокал, переклад, SMM", "link": "https://t.me/AriaTerum"},
@@ -285,7 +284,6 @@ TEAM_PROFILES = {
     "azri":      {"name": "Azri", "ua": "Азрі", "role": "Вокал, зведення", "link": ""},
 }
 
-# алиаси -> ключ TEAM_PROFILES
 PROFILE_ALIASES = {
     "nerineris": ["nerineris", "нері", "neri"],
     "riterum":   ["riterum", "рітерум", "рум", "rit", "ритерум"],
@@ -330,17 +328,65 @@ def extract_quoted_name(raw: str) -> str | None:
     m = re.search(r"[\"“”'‘’](.+?)[\"“”'‘’]", raw)
     return m.group(1).strip() if m else None
 
-def answer_who_is(raw_text: str, q: str) -> str | None:
-    # тригери "хто такий/така/це/що за"
-    if not re.search(r"\bхто\b", q):
+# === UPDATE: нормальне витягування імені після "до/про" ===
+def extract_name_after_preposition(q: str, prep: str) -> str | None:
+    """
+    Витягує ім'я після 'до' або 'про'.
+    Працює з: "як ти відносишся до торі?" / "твоє відношення до Рум" / "що думаєш про Дейза"
+    """
+    # бере слово/фразу після preposition до кінця або до знаків пунктуації
+    m = re.search(rf"(?:\b{prep}\b)\s+(.+)$", q)
+    if not m:
         return None
-    if not re.search(r"(такий|така|це|за)\b", q) and "хто" not in q:
+
+    tail = (m.group(1) or "").strip()
+
+    # прибираємо хвости типу "будь ласка", "плиз" і т.д. (за потреби можна розширити)
+    tail = re.sub(r"\b(будь\s+ласка|будь-ласка|пліз|плиз)\b.*$", "", tail).strip()
+
+    # якщо там кілька слів — беремо перші 2, але перевіримо по алиасам
+    parts = [p for p in re.split(r"\s+", tail) if p]
+    if not parts:
+        return None
+
+    # 2-слова (на випадок "дмитро жук")
+    if len(parts) >= 2:
+        cand2 = _clean_name_token(parts[0] + " " + parts[1])
+        if cand2 and cand2 in ALIAS_TO_PROFILE_KEY:
+            return parts[0] + " " + parts[1]
+
+    # 1-слово
+    return parts[0]
+
+def answer_who_is(raw_text: str, q: str) -> str | None:
+    # ТІЛЬКИ явні формулювання
+    if not (
+        re.search(r"\bхто\s+(такий|така|це)\b", q)
+        or re.search(r"\bщо\s+за\b", q)
+        or re.search(r"\bхто\b.*\bце\b", q)
+    ):
         return None
 
     name = extract_quoted_name(raw_text)
+
     if not name:
-        parts = q.split()
-        name = parts[-1] if parts else ""
+        # пробуємо після "хто такий/така/це" або "що за"
+        m = re.search(r"\b(такий|така|це|за)\b\s+(.+)$", q)
+        if m:
+            tail = m.group(2).strip()
+            parts = [p for p in re.split(r"\s+", tail) if p]
+            if parts:
+                if len(parts) >= 2:
+                    cand2 = _clean_name_token(parts[0] + " " + parts[1])
+                    if cand2 and cand2 in ALIAS_TO_PROFILE_KEY:
+                        name = parts[0] + " " + parts[1]
+                    else:
+                        name = parts[0]
+                else:
+                    name = parts[0]
+
+    if not name:
+        return None
 
     k = canonical_profile_key(name)
     prof = TEAM_PROFILES.get(k)
@@ -379,10 +425,17 @@ def handle_member_opinion(raw_text: str, q: str) -> str | None:
     # ЯВНО: "як ти відносишся до X" / "твоє відношення до X" / "що думаєш про X"
     if not re.search(r"(відносишс|відношенн|ставишс|думаєш)\b", q):
         return None
-    if not re.search(r"\b(до|про)\b", q):
-        return None
 
     name = extract_quoted_name(raw_text)
+
+    # === UPDATE: беремо ім'я після ДО/ПРО, а не "останнє слово" ===
+    if not name:
+        if re.search(r"\bдо\b", q) and re.search(r"(відносишс|відношенн|ставишс)\b", q):
+            name = extract_name_after_preposition(q, "до")
+        elif re.search(r"\bпро\b", q) and re.search(r"\bдумаєш\b", q):
+            name = extract_name_after_preposition(q, "про")
+
+    # запасний варіант (старий): останнє слово
     if not name:
         parts = q.split()
         name = parts[-1] if parts else ""
@@ -427,7 +480,11 @@ def handle_punish(raw_text: str, q: str) -> str | None:
 
     name = extract_quoted_name(raw_text)
     if not name:
-        name = extract_name_after_keyword(q, "покар") or extract_name_after_keyword(q, "накаж") or extract_name_after_keyword(q, "мут")
+        name = (
+            extract_name_after_keyword(q, "покар")
+            or extract_name_after_keyword(q, "накаж")
+            or extract_name_after_keyword(q, "мут")
+        )
 
     if not name:
         return neri_style("Кого карати? Напиши так: «Нері, покарай Торі» 👀")
@@ -456,7 +513,6 @@ def serious_refusal() -> str:
 
 # ===== Команди/довідка =====
 def is_cmds_query(q: str) -> bool:
-    # ловить: "команди", "нері команди", "що ти вмієш"
     if re.search(r"\bкоманд(и|а)?\b", q):
         return True
     if ("що" in q and "вмі" in q):
@@ -637,7 +693,6 @@ def combine_reply(base: str, kind: str) -> str:
 def detect_smalltalk(q: str) -> str | None:
     qq = _norm_ua(q)
 
-    # ВАЖЛИВО: smalltalk НЕ перехоплює команди/профілі/думки/покарання/погоду/вік/дн
     block = ["вмі", "команд", "віднос", "відношенн", "ставиш", "думаєш", "хто", "покар", "накаж", "мут", "погод", "рок", "народж", "привітай"]
     if any(b in qq for b in block):
         return None
@@ -715,8 +770,8 @@ async def telegram_webhook(request: Request):
             city = extract_city_from_query(q)
             reply = get_weather(city) if city else "Скажи місто 🌿 Наприклад: «Нері, погода в Києві»"
 
-        # 0) покарай (жарт)
         else:
+            # 0) покарай (жарт)
             punish = handle_punish(raw_text, q)
             if punish:
                 reply = punish
@@ -763,12 +818,12 @@ async def telegram_webhook(request: Request):
                 if who:
                     reply = who
                 else:
-                    # 8) як відносишся/думаєш (ОКРЕМО)
+                    # 8) як відносишся/думаєш (ОКРЕМО)  ✅ ОНОВЛЕНО
                     op = handle_member_opinion(raw_text, q)
                     if op:
                         reply = op
                     else:
-                        # 9) smalltalk (тепер не ламає команди/профілі/думки)
+                        # 9) smalltalk
                         st = detect_smalltalk(q)
                         if st:
                             reply = neri_style(st)
