@@ -269,7 +269,7 @@ TEAM_PROFILES = {
     "tori":      {"name": "Tori_frr", "ua": "Торі", "role": "Адмін, вокал, переклад, ілюстрації, відео", "link": "https://t.me/Kaganuka"},
     "pina":      {"name": "ПІНОПЛАСТІВОЧКА", "ua": "Піна", "role": "Вокал, ілюстрації, переклад", "link": "https://t.me/vezha_pinoplastivochky"},
     "alyvian":   {"name": "Alyvian", "ua": "Алувіан", "role": "Адмін, вокал, гармонії", "link": "https://t.me/alyviancovers"},
-    "miraj": {"name": "Miraj", "ua": "Мірай", "role": "Вокал, гармонії", "link": ""},
+    "miraj":     {"name": "Miraj", "ua": "Мірай", "role": "Вокал, гармонії", "link": ""},
     "stellar":   {"name": "StellarSkriM", "ua": "Стеллар", "role": "Зведення", "link": "https://t.me/StellarSkriMRoom"},
     "rybka":     {"name": "Рибка", "ua": "Рибка", "role": "Відео", "link": ""},
     "lee":       {"name": "Lee", "ua": "Лі", "role": "Ілюстрації", "link": "https://t.me/artdisainli"},
@@ -849,4 +849,5 @@ async def telegram_webhook(request: Request):
         send_message(chat_id, reply)
 
     return {"ok": True}
+
 
