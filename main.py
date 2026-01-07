@@ -394,14 +394,15 @@ def canonical_member_key(name_raw: str) -> str:
 # ===== Team facts / profiles (правда про команду) =====
 TEAM_FACTS = {
     "дейз": {
-        "short": "Дейз — учасник нашої команди."],
+        "short": "Дейз — учасник вашої команди.",
+        "details": [],  # ✅ прибрано “лор” і фразу про “Дейз оживив мене”
     },
     "рітерум": {
-        "short": "Рітерум — матуся Нері (в лорі бота).",
+        "short": "Рітерум — матуся Нері (в історії бота).",  # ✅ без слова “лор”
         "details": ["Також може зватися «Рум»."],
     },
     "лірен": {
-        "short": "Лірен — татусь Нері (в лорі бота).",
+        "short": "Лірен — татусь Нері (в історії бота).",  # ✅ без слова “лор”
         "details": [],
     },
 }
@@ -647,9 +648,15 @@ def gemini_generate(prompt: str, model: str | None = None) -> str | None:
     use_model = model or GEMINI_MODEL
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{use_model}:generateContent"
     headers = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
+
+    # ✅ ВАЖЛИВО: додаємо maxOutputTokens + інші налаштування
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.6, "maxOutputTokens": 280},
+        "generationConfig": {
+            "temperature": 0.6,
+            "topP": 0.9,
+            "maxOutputTokens": 220,  # <- ліміт відповіді (можеш змінити)
+        },
     }
 
     try:
@@ -657,18 +664,17 @@ def gemini_generate(prompt: str, model: str | None = None) -> str | None:
         print("GEMINI status:", r.status_code)
 
         if r.status_code != 200:
-            # Логи допоможуть підібрати правильну назву моделі, якщо 404
             print("GEMINI error:", r.text[:800])
             return None
 
         data = r.json()
-        text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-        return text.strip() if text else None
+
+        # ✅ ВАЖЛИВО: склеюємо ВСІ parts, щоб не обривалося
+        cand = (data.get("candidates") or [{}])[0]
+        parts = (cand.get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts).strip()
+
+        return text if text else None
 
     except Exception as e:
         print("GEMINI exception:", repr(e))
@@ -837,4 +843,3 @@ async def telegram_webhook(request: Request):
         send_message(chat_id, reply)
 
     return {"ok": True}
-
