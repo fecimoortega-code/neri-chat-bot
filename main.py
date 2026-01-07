@@ -223,7 +223,7 @@ def neri_style(text: str) -> str:
     t = text.strip()
 
     # 8% шанс зробити одне слово/фразу капсом (без перебору)
-    if random.random() < 0.08:
+    if random.random() < 0.25:
         words = t.split()
         if len(words) >= 3:
             i = random.randint(0, len(words) - 1)
@@ -744,3 +744,4 @@ async def telegram_webhook(request: Request):
         send_message(chat_id, reply)
 
     return {"ok": True}
+
