@@ -9,10 +9,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# ===== GEMINI =====
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # можна міняти в ENV
-
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 app = FastAPI()
@@ -43,8 +39,6 @@ async def startup():
     print("BOT_TOKEN exists:", bool(BOT_TOKEN))
     print("WEBHOOK_URL:", WEBHOOK_URL)
     print("WEATHER_API_KEY exists:", bool(WEATHER_API_KEY))
-    print("GEMINI_API_KEY exists:", bool(GEMINI_API_KEY))
-    print("GEMINI_MODEL:", GEMINI_MODEL)
     set_webhook()
 
 
@@ -393,7 +387,6 @@ def canonical_member_key(name_raw: str) -> str:
 
 # ===== Team facts / profiles (правда про команду) =====
 TEAM_FACTS = {
-    
     "рітерум": {
         "short": "Рітерум — матуся Нері ✨🌿",
         "details": ["Також може зватися «Рум»."],
@@ -570,7 +563,7 @@ def is_dad_query(q: str) -> bool:
     return ("хто" in q and ("тат" in q or "тато" in q))
 
 def is_love_query(q: str) -> bool:
-    return ("ти" in q and "мене" in q and "люб" in q) or ("любиш" in q)
+    return ("ти" in q and "мене" in q and "люб") or ("любиш" in q)
 
 def is_opinion_query(q: str) -> bool:
     return ("як" in q and "вважаєш" in q) or ("що" in q and "думаєш" in q and "взагалі" in q) or ("як" in q and "думаєш" in q)
@@ -635,94 +628,6 @@ def detect_intent(query: str):
         if all(k in query for k in keywords):
             return pick_response(responses)
     return None
-
-
-# ===== Gemini (2-pass: draft + self-check) =====
-def gemini_generate(prompt: str, model: str | None = None) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-
-    use_model = model or GEMINI_MODEL
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{use_model}:generateContent"
-    headers = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
-
-    # ✅ ВАЖЛИВО: додаємо maxOutputTokens + інші налаштування
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.6,
-            "topP": 0.9,
-            "maxOutputTokens": 220,  # <- ліміт відповіді (можеш змінити)
-        },
-    }
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
-        print("GEMINI status:", r.status_code)
-
-        if r.status_code != 200:
-            print("GEMINI error:", r.text[:800])
-            return None
-
-        data = r.json()
-
-        # ✅ ВАЖЛИВО: склеюємо ВСІ parts, щоб не обривалося
-        cand = (data.get("candidates") or [{}])[0]
-        parts = (cand.get("content") or {}).get("parts") or []
-        text = "".join(p.get("text", "") for p in parts).strip()
-
-        return text if text else None
-
-    except Exception as e:
-        print("GEMINI exception:", repr(e))
-        return None
-
-
-def gemini_answer_as_neri(raw_user_text: str) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-
-    q = clean_text(raw_user_text)
-    if is_serious_topic(q):
-        return serious_refusal()
-
-    facts_lines = []
-    for k, v in TEAM_FACTS.items():
-        facts_lines.append(f"- {k}: {v.get('short','')}")
-    facts_block = "\n".join(facts_lines) if facts_lines else "- (нема)"
-
-    system = (
-        "Ти — Нері, маскот команди.\n"
-        "Стиль: ніжний, турботливий, але екстравертний і дуже товариський (без перебору); любиш побазікати; любиш природу, музику і зелений чай.\n"
-        "Мова: українська.\n"
-        "ЗАЙМЕННИКИ: ти говориш про себе як ВІН/ВОНИ. НІКОЛИ не використовуй про себе жіночий рід.\n"
-        "ЗАБОРОНИ: не говори про політику/війну/зброю; не проси/не видавай паролі/токени/приватні дані; без токсичності, без матів.\n"
-        "ПРАВДИВІСТЬ: якщо не впевнений — скажи чесно, що не знаєш/не маєш даних, і запропонуй уточнити.\n"
-        "ФАКТИ ПРО КОМАНДУ (це правда, використовуй її, але НЕ ВИГАДУЙ нових фактів):\n"
-        f"{facts_block}\n"
-    )
-
-    draft_prompt = (
-        f"{system}\n"
-        f"Користувач: {raw_user_text}\n"
-        "Відповідь Нері (коротко, по суті, без вигадок):"
-    )
-    draft = gemini_generate(draft_prompt)
-    if not draft:
-        return None
-
-    check_prompt = (
-        f"{system}\n"
-        "Перевір відповідь нижче:\n"
-        "1) чи немає вигаданих фактів (особливо про команду)\n"
-        "2) чи дотримані заборони\n"
-        "3) чи Нері говорить про себе як він/вони (без жіночого роду) та з емоджі ✨🌿\n"
-        "Якщо є проблеми — виправ. Якщо все ок — трохи пригладь стиль Нері.\n\n"
-        f"Чернетка: {draft}\n\n"
-        "Фінальна відповідь Нері:"
-    )
-    final = gemini_generate(check_prompt) or draft
-    return neri_style(final)
 
 
 # ===== Routes =====
@@ -832,9 +737,8 @@ async def telegram_webhook(request: Request):
                             if fact:
                                 reply = fact
                             else:
-                                # 10) Gemini fallback (2-pass self-check)
-                                ai = gemini_answer_as_neri(raw_text)
-                                reply = ai if ai else random.choice(FALLBACKS)
+                                # 10) fallback без Gemini
+                                reply = random.choice(FALLBACKS)
 
     if reply:
         send_message(chat_id, reply)
