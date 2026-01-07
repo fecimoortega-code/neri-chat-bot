@@ -267,9 +267,9 @@ TEAM_PROFILES = {
     "liren":     {"name": "LiRen", "ua": "Лірен", "role": "Лідер, вокал, ілюстрації, переклад", "link": "https://t.me/LiRen_Arts"},
     "daze":      {"name": "daze", "ua": "Дейз", "role": "Адмін, відео", "link": "https://t.me/korobkadaze"},
     "tori":      {"name": "Tori_frr", "ua": "Торі", "role": "Адмін, вокал, переклад, ілюстрації, відео", "link": "https://t.me/Kaganuka"},
-    "pina":      {"name": "ПІНОПЛАСТІВОЧКА", "ua": "Піна", "role": "Вокал, ілюстрації, переклад", "link": "https://t.me/veza_na_pinoplastivochky"},
+    "pina":      {"name": "ПІНОПЛАСТІВОЧКА", "ua": "Піна", "role": "Вокал, ілюстрації, переклад", "link": "https://t.me/vezha_pinoplastivochky"},
     "alyvian":   {"name": "Alyvian", "ua": "Алувіан", "role": "Адмін, вокал, гармонії", "link": "https://t.me/alyviancovers"},
-    "miraj":     {"name": "Miraj", "ua": "Мірай", "role": "Вокал, гармонії", "link": "https://t.me/maricovers"},
+    "miraj":     {"name": "Miraj", "ua": "Мірай", "role": "Вокал, гармонії", "link":},
     "stellar":   {"name": "StellarSkriM", "ua": "Стеллар", "role": "Зведення", "link": "https://t.me/StellarSkriMRoom"},
     "rybka":     {"name": "Рибка", "ua": "Рибка", "role": "Відео", "link": ""},
     "lee":       {"name": "Lee", "ua": "Лі", "role": "Ілюстрації", "link": "https://t.me/artdisainli"},
@@ -279,7 +279,7 @@ TEAM_PROFILES = {
     "mari":      {"name": "MARi", "ua": "Марі", "role": "Вокал, зведення, гармонії", "link": "https://t.me/maricovers"},
     "dreamu":    {"name": "Dreamu", "ua": "Дрімі", "role": "Ілюстрації", "link": ""},
     "illya":     {"name": "Ілля", "ua": "Ілля", "role": "Зведення", "link": ""},
-    "pechenieg": {"name": "pechenieg", "ua": "печеніг", "role": "Ілюстрації, відео", "link": "https://t.me/pechenieg_tg"},
+    "pechenieg": {"name": "pechenig", "ua": "печеніг", "role": "Ілюстрації, відео", "link": "https://t.me/pechenig_tg"},
     "zhuk":      {"name": "Дмитро Жук", "ua": "Жук", "role": "Ілюстрації", "link": "https://t.me/duke_zhukem"},
     "azri":      {"name": "Azri", "ua": "Азрі", "role": "Вокал, зведення", "link": ""},
 }
@@ -296,12 +296,12 @@ PROFILE_ALIASES = {
     "stellar":   ["stellarskrim", "stellar", "стеллар", "стелларскрім"],
     "rybka":     ["рибка"],
     "lee":       ["lee", "лі"],
-    "moka":      ["мока", "мокатроля", "mokatrola"],
+    "moka":      ["мока", "мокатрола", "mokatrola"],
     "inky":      ["inky", "inkylove", "інкі"],
     "lesya":     ["леся", "moemoenya"],
     "mari":      ["mari", "марі", "maricovers"],
     "dreamu":    ["dreamu", "дрімі", "dreamy"],
-    "illya":     ["ілля", "illya"],
+    "illyya":    ["ілля", "illya"],
     "pechenieg": ["печеніг", "pechenieg", "pechenig"],
     "zhuk":      ["жук", "dmytro", "дуке", "duke_zhukem", "дмитро жук"],
     "azri":      ["азрі", "azri", "azry"],
@@ -423,14 +423,14 @@ MEMBER_OPINIONS = {
 
 def handle_member_opinion(raw_text: str, q: str) -> str | None:
     # ЯВНО: "як ти відносишся до X" / "твоє відношення до X" / "що думаєш про X"
-    if not re.search(r"(відносишс|відношенн|ставишс|думаєш)\b", q):
+    if not re.search(r"(відносиш|відношенн|ставиш|думаєш)", q):
         return None
 
     name = extract_quoted_name(raw_text)
 
     # === UPDATE: беремо ім'я після ДО/ПРО, а не "останнє слово" ===
     if not name:
-        if re.search(r"\bдо\b", q) and re.search(r"(відносишс|відношенн|ставишс)\b", q):
+        if re.search(r"\bдо\b", q) and re.search(r"(відносиш|відношенн|ставиш)", q):
             name = extract_name_after_preposition(q, "до")
         elif re.search(r"\bпро\b", q) and re.search(r"\bдумаєш\b", q):
             name = extract_name_after_preposition(q, "про")
@@ -571,7 +571,7 @@ def is_greet_new_query(q: str) -> bool:
 
 def greet_new_member_text() -> str:
     return (
-        "Привіт! Я Нері — маскот команди 💚🌿 Радій знайомству!\n"
+        "Привіт! Я Нері — маскот команди 💚🌿 Радий знайомству!\n"
         "Все потрібне ти знайдеш у чаті Work Neri ✨"
     )
 
