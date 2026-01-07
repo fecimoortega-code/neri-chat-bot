@@ -241,6 +241,13 @@ def neri_style(text: str) -> str:
 NERI_AGE = 2
 NERI_BDAY = "16.09.2025"
 
+# ===== Pronouns Q/A =====
+def is_pronouns_query(q: str) -> bool:
+    return ("займенник" in q) or ("займенники" in q) or ("pronouns" in q)
+
+def pronouns_reply() -> str:
+    return "Мої займенники — він/вони 🌿"
+
 # ===== Mom/Dad =====
 def is_mom_query(q: str) -> bool:
     return ("хто" in q) and ("мама" in q or "матуся" in q or "матi" in q or "мать" in q)
@@ -555,7 +562,7 @@ INTERESTING_REPLIES = [
 ]
 
 def is_about_query(q: str) -> bool:
-    return ("розкажи" in q and "про" in q and "себе" in q) or ("хто" in q and "ти" in q)
+    return ("розкажи" in q and "про" in q and "себе") or ("хто" in q and "ти" in q)
 
 def is_interesting_query(q: str) -> bool:
     return ("розкажи" in q and ("цікав" in q or "цікавеньк" in q)) or ("розкажи" in q and "щось" in q)
@@ -564,7 +571,7 @@ def is_age_query(q: str) -> bool:
     return ("скільки" in q and "рок" in q) or ("вік" in q)
 
 def is_bday_query(q: str) -> bool:
-    return ("день" in q and "народж" in q) or ("коли" in q and "народж" in q)
+    return ("день" in q and "народж") or ("коли" in q and "народж" in q)
 
 def is_greet_new_query(q: str) -> bool:
     return "привітайся" in q or "привітай" in q
@@ -693,7 +700,7 @@ def combine_reply(base: str, kind: str) -> str:
 def detect_smalltalk(q: str) -> str | None:
     qq = _norm_ua(q)
 
-    block = ["вмі", "команд", "віднос", "відношенн", "ставиш", "думаєш", "хто", "покар", "накаж", "мут", "погод", "рок", "народж", "привітай"]
+    block = ["вмі", "команд", "віднос", "відношенн", "ставиш", "думаєш", "хто", "покар", "накаж", "мут", "погод", "рок", "народж", "привітай", "займенник"]
     if any(b in qq for b in block):
         return None
 
@@ -765,6 +772,10 @@ async def telegram_webhook(request: Request):
         if is_serious_topic(q):
             reply = serious_refusal()
 
+        # займенники ✅ ДОДАНО
+        elif is_pronouns_query(q):
+            reply = neri_style(pronouns_reply())
+
         # погода
         elif "погод" in q or "погода" in q:
             city = extract_city_from_query(q)
@@ -818,7 +829,7 @@ async def telegram_webhook(request: Request):
                 if who:
                     reply = who
                 else:
-                    # 8) як відносишся/думаєш (ОКРЕМО)  ✅ ОНОВЛЕНО
+                    # 8) як відносишся/думаєш (ОКРЕМО)
                     op = handle_member_opinion(raw_text, q)
                     if op:
                         reply = op
@@ -849,5 +860,3 @@ async def telegram_webhook(request: Request):
         send_message(chat_id, reply)
 
     return {"ok": True}
-
-
