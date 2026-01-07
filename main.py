@@ -394,10 +394,7 @@ def canonical_member_key(name_raw: str) -> str:
 # ===== Team facts / profiles (правда про команду) =====
 TEAM_FACTS = {
     "дейз": {
-        "short": "Дейз — учасник вашої команди.",
-        "details": [
-            "У лорі Нері є фраза: «Дейз оживив мене» (це просто теплий факт з характеру бота).",
-        ],
+        "short": "Дейз — учасник нашої команди."],
     },
     "рітерум": {
         "short": "Рітерум — матуся Нері (в лорі бота).",
@@ -840,3 +837,4 @@ async def telegram_webhook(request: Request):
         send_message(chat_id, reply)
 
     return {"ok": True}
+
